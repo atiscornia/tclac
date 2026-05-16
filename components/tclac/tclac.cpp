@@ -558,10 +558,11 @@ void tclacClimate::sendData(uint8_t * message, uint8_t size) {
 // Преобразование байта в читабельный формат
 String tclacClimate::getHex(uint8_t *message, uint8_t size) {
 	String raw;
+	char buf[4];
 	for (int i = 0; i < size; i++) {
-		raw += "\n" + String(message[i]);
+		snprintf(buf, sizeof(buf), "%02X ", message[i]);
+		raw += buf;
 	}
-	raw.toUpperCase();
 	return raw;
 }
 
