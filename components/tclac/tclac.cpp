@@ -15,7 +15,7 @@ namespace tclac{
 ClimateTraits tclacClimate::traits() {
 	auto traits = climate::ClimateTraits();
 	traits.add_feature_flags(climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE);
-	traits.add_feature_flags(climate::CLIMATE_SUPPORTS_TARGET_TEMPERATURE);
+	traits.set_supports_target_temperature(true);
 	traits.set_visual_min_temperature(16);
 	traits.set_visual_max_temperature(31);
 	traits.set_visual_target_temperature_step(1);
