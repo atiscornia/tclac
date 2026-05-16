@@ -48,6 +48,10 @@ ClimateTraits tclacClimate::traits() {
 
 void tclacClimate::setup() {
 
+	// Inicializamos target_temperature con un valor valido para evitar NaN al boot
+	this->target_temperature = 24.0f;
+	this->current_temperature = NAN;
+
 #ifdef CONF_RX_LED
 	this->rx_led_pin_->setup();
 	this->rx_led_pin_->digital_write(false);
