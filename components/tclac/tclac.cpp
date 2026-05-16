@@ -124,6 +124,10 @@ void tclacClimate::readData() {
 	
 	current_temperature = float((( (dataRX[17] << 8) | dataRX[18] ) / 374 - 32)/1.8);
 	target_temperature = (dataRX[FAN_SPEED_POS] & SET_TEMP_MASK) + 16;
+	// HACK: en modo AUTO/HEAT_COOL, HA puede leer target_temperature_low/high en lugar de target_temperature
+	// Seteamos los tres al mismo valor para que el slider funcione en cualquier modo
+	target_temperature_low = target_temperature;
+	target_temperature_high = target_temperature;
 
 	ESP_LOGD("TCL", "readData: byte8=0x%02X, target_temp calculado=%.1f, current=%.1f", dataRX[FAN_SPEED_POS], target_temperature, current_temperature);
 
