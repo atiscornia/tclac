@@ -9,8 +9,6 @@
 #   ota_pass             -> Password OTA
 #   api_key              -> Clave API de ESPHome
 #   uart_rx, uart_tx     -> Pines GPIO de UART hacia el aire
-#   receive_led          -> Pin GPIO del LED de RX
-#   transmit_led         -> Pin GPIO del LED de TX
 
 external_components:
   - source:
@@ -56,8 +54,6 @@ climate:
     name: ${humanly_name} Climate
     id: ${device_name}climate
     uart_id: tclac_uart
-    rx_led: ${receive_led}
-    tx_led: ${transmit_led}
     supported_modes:
       - "OFF"
       - HEAT_COOL
