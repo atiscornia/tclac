@@ -18,7 +18,7 @@ ClimateTraits tclacClimate::traits() {
 	
 	if (this->supported_modes_.empty()) {
 		traits.add_supported_mode(climate::CLIMATE_MODE_OFF);
-		traits.add_supported_mode(climate::CLIMATE_MODE_AUTO);
+		traits.add_supported_mode(climate::CLIMATE_MODE_HEAT_COOL);
 	} else {
 		for (auto mode : this->supported_modes_)
 			traits.add_supported_mode(mode);
@@ -47,11 +47,6 @@ ClimateTraits tclacClimate::traits() {
 
 void tclacClimate::setup() {
 
-	// Inicializamos target_temperature con un valor valido para evitar NaN al boot
-	this->target_temperature = 24.0f;
-	this->current_temperature = NAN;
-	this->mode = climate::CLIMATE_MODE_OFF;
-
 #ifdef CONF_RX_LED
 	this->rx_led_pin_->setup();
 	this->rx_led_pin_->digital_write(false);
@@ -60,9 +55,6 @@ void tclacClimate::setup() {
 	this->tx_led_pin_->setup();
 	this->tx_led_pin_->digital_write(false);
 #endif
-
-	// Publicamos el estado inicial para que HA reciba target_temperature valido desde el primer momento
-	this->publish_state();
 }
 
 void tclacClimate::loop()  {
@@ -128,7 +120,9 @@ void tclacClimate::readData() {
 
 		switch (modeswitch) {
 			case MODE_AUTO:
-				this->mode = climate::CLIMATE_MODE_AUTO;
+				// HA bloquea el slider de temperatura en CLIMATE_MODE_AUTO.
+				// Mapeamos a HEAT_COOL que si lo permite. Internamente el aire sigue en su AUTO real.
+				this->mode = climate::CLIMATE_MODE_HEAT_COOL;
 				break;
 			case MODE_COOL:
 				this->mode = climate::CLIMATE_MODE_COOL;
@@ -143,7 +137,7 @@ void tclacClimate::readData() {
 				this->mode = climate::CLIMATE_MODE_HEAT;
 				break;
 			default:
-				this->mode = climate::CLIMATE_MODE_AUTO;
+				this->mode = climate::CLIMATE_MODE_HEAT_COOL;
 		}
 
 		if ( dataRX[FAN_QUIET_POS] & FAN_QUIET) {
@@ -273,6 +267,8 @@ void tclacClimate::takeControl() {
 			dataTX[8] += 0b00000000;
 			break;
 		case climate::CLIMATE_MODE_AUTO:
+		case climate::CLIMATE_MODE_HEAT_COOL:
+			// HEAT_COOL se traduce al modo AUTO del aire (que si acepta setpoint)
 			dataTX[7] += 0b00000100;
 			dataTX[8] += 0b00001000;
 			break;
@@ -495,14 +491,14 @@ void tclacClimate::takeControl() {
 	dataTX[9] = target_temperature_set;
 		
 	// Armamos el array de bytes para enviar al aire
-	dataTX[0] = 0xBB;	// byte de header
-	dataTX[1] = 0x00;	// byte de header
-	dataTX[2] = 0x01;	// byte de header
-	dataTX[3] = 0x03;	// 0x03 - control, 0x04 - consulta
-	dataTX[4] = 0x20;	// 0x20 - control, 0x19 - consulta
+	dataTX[0] = 0xBB;
+	dataTX[1] = 0x00;
+	dataTX[2] = 0x01;
+	dataTX[3] = 0x03;
+	dataTX[4] = 0x20;
 	dataTX[5] = 0x03;
 	dataTX[6] = 0x01;
-	dataTX[12] = 0x00;	// fahrenheit, ontimer(6), 0 cf 80=f 0=c
+	dataTX[12] = 0x00;
 	dataTX[13] = 0x01;
 	dataTX[14] = 0x00;
 	dataTX[15] = 0x00;
@@ -523,7 +519,7 @@ void tclacClimate::takeControl() {
 	dataTX[34] = 0x00;
 	dataTX[35] = 0x00;
 	dataTX[36] = 0x00;
-	dataTX[37] = 0xFF;	// Checksum
+	dataTX[37] = 0xFF;
 	dataTX[37] = tclacClimate::getChecksum(dataTX, sizeof(dataTX));
 
 	tclacClimate::sendData(dataTX, sizeof(dataTX));
