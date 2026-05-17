@@ -56,7 +56,6 @@ climate:
     name: ${humanly_name} Climate
     id: ${device_name}climate
     uart_id: tclac_uart
-    update_interval: 5s
     rx_led: ${receive_led}
     tx_led: ${transmit_led}
     supported_modes:
