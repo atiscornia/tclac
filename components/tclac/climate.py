@@ -122,13 +122,13 @@ def validate_visual(config):
         if CONF_MIN_TEMPERATURE in visual_config:
             min_temp = visual_config[CONF_MIN_TEMPERATURE]
             if min_temp < TCLAC_MIN_TEMPERATURE:
-                raise cv.Invalid(f"Minimum visual temperature {min_temp} is lower than allowed {TCLAC_MIN_TEMPERATURE} for the AC")
+                raise cv.Invalid(f"Minimum visual temperature {min_temp} is lower than allowed {TCLAC_MIN_TEMPERATURE}")
         else:
             config[CONF_VISUAL][CONF_MIN_TEMPERATURE] = TCLAC_MIN_TEMPERATURE
         if CONF_MAX_TEMPERATURE in visual_config:
             max_temp = visual_config[CONF_MAX_TEMPERATURE]
             if max_temp > TCLAC_MAX_TEMPERATURE:
-                raise cv.Invalid(f"Maximum visual temperature {max_temp} is higher than allowed {TCLAC_MAX_TEMPERATURE} for the AC")
+                raise cv.Invalid(f"Maximum visual temperature {max_temp} is higher than allowed {TCLAC_MAX_TEMPERATURE}")
         else:
             config[CONF_VISUAL][CONF_MAX_TEMPERATURE] = TCLAC_MAX_TEMPERATURE
         if CONF_TEMPERATURE_STEP in visual_config:
@@ -136,9 +136,9 @@ def validate_visual(config):
             if ((int)(temp_step * 2)) / 2 != temp_step:
                 raise cv.Invalid(f"Temperature step {temp_step} is not valid, must be a multiple of 1")
         else:
-            config[CONF_VISUAL][CONF_TEMPERATURE_STEP] = {CONF_TARGET_TEMPERATURE: TCLAC_TARGET_TEMPERATURE_STEP,CONF_CURRENT_TEMPERATURE: TCLAC_CURRENT_TEMPERATURE_STEP,}
+            config[CONF_VISUAL][CONF_TEMPERATURE_STEP] = {CONF_TARGET_TEMPERATURE: TCLAC_TARGET_TEMPERATURE_STEP, CONF_CURRENT_TEMPERATURE: TCLAC_CURRENT_TEMPERATURE_STEP,}
     else:
-        config[CONF_VISUAL] = {CONF_MIN_TEMPERATURE: TCLAC_MIN_TEMPERATURE,CONF_MAX_TEMPERATURE: TCLAC_MAX_TEMPERATURE,CONF_TEMPERATURE_STEP: {CONF_TARGET_TEMPERATURE: TCLAC_TARGET_TEMPERATURE_STEP,CONF_CURRENT_TEMPERATURE: TCLAC_CURRENT_TEMPERATURE_STEP,},}
+        config[CONF_VISUAL] = {CONF_MIN_TEMPERATURE: TCLAC_MIN_TEMPERATURE, CONF_MAX_TEMPERATURE: TCLAC_MAX_TEMPERATURE, CONF_TEMPERATURE_STEP: {CONF_TARGET_TEMPERATURE: TCLAC_TARGET_TEMPERATURE_STEP, CONF_CURRENT_TEMPERATURE: TCLAC_CURRENT_TEMPERATURE_STEP,},}
     return config
 
 CONFIG_SCHEMA = cv.All(
@@ -155,10 +155,10 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_VERTICAL_SWING_MODE, default="UP_DOWN"): cv.ensure_list(cv.enum(VERTICAL_SWING_DIRECTION_OPTIONS, upper=True)),
             cv.Optional(CONF_HORIZONTAL_AIRFLOW, default="CENTER"): cv.ensure_list(cv.enum(AIRFLOW_HORIZONTAL_DIRECTION_OPTIONS, upper=True)),
             cv.Optional(CONF_HORIZONTAL_SWING_MODE, default="LEFT_RIGHT"): cv.ensure_list(cv.enum(HORIZONTAL_SWING_DIRECTION_OPTIONS, upper=True)),
-            cv.Optional(CONF_SUPPORTED_PRESETS,default=["NONE","ECO","SLEEP","COMFORT",],): cv.ensure_list(cv.enum(SUPPORTED_CLIMATE_PRESETS_OPTIONS, upper=True)),
-            cv.Optional(CONF_SUPPORTED_SWING_MODES,default=["OFF","VERTICAL","HORIZONTAL","BOTH",],): cv.ensure_list(cv.enum(SUPPORTED_SWING_MODES_OPTIONS, upper=True)),
-            cv.Optional(CONF_SUPPORTED_MODES,default=["OFF","AUTO","COOL","HEAT","DRY","FAN_ONLY",],): cv.ensure_list(cv.enum(SUPPORTED_CLIMATE_MODES_OPTIONS, upper=True)),
-            cv.Optional(CONF_SUPPORTED_FAN_MODES,default=["AUTO","QUIET","LOW","MIDDLE","MEDIUM","HIGH","FOCUS","DIFFUSE",],): cv.ensure_list(cv.enum(SUPPORTED_FAN_MODES_OPTIONS, upper=True)),
+            cv.Optional(CONF_SUPPORTED_PRESETS, default=["NONE","ECO","SLEEP","COMFORT",],): cv.ensure_list(cv.enum(SUPPORTED_CLIMATE_PRESETS_OPTIONS, upper=True)),
+            cv.Optional(CONF_SUPPORTED_SWING_MODES, default=["OFF","VERTICAL","HORIZONTAL","BOTH",],): cv.ensure_list(cv.enum(SUPPORTED_SWING_MODES_OPTIONS, upper=True)),
+            cv.Optional(CONF_SUPPORTED_MODES, default=["OFF","HEAT_COOL","COOL","HEAT","DRY","FAN_ONLY",],): cv.ensure_list(cv.enum(SUPPORTED_CLIMATE_MODES_OPTIONS, upper=True)),
+            cv.Optional(CONF_SUPPORTED_FAN_MODES, default=["AUTO","QUIET","LOW","MIDDLE","MEDIUM","HIGH","FOCUS","DIFFUSE",],): cv.ensure_list(cv.enum(SUPPORTED_FAN_MODES_OPTIONS, upper=True)),
         }
     )
     .extend(uart.UART_DEVICE_SCHEMA)
@@ -239,9 +239,7 @@ async def force_mode_action_to_code(config, action_id, template_arg, args):
 async def tclac_set_vertical_airflow_to_code(config, action_id, template_arg, args):
     paren = await cg.get_variable(config[CONF_ID])
     var = cg.new_Pvariable(action_id, template_arg, paren)
-    template_ = await cg.templatable(
-        config[CONF_VERTICAL_AIRFLOW], args, AirflowVerticalDirection
-    )
+    template_ = await cg.templatable(config[CONF_VERTICAL_AIRFLOW], args, AirflowVerticalDirection)
     cg.add(var.set_direction(template_))
     return var
 
