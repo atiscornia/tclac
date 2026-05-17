@@ -23,9 +23,8 @@ ClimateTraits tclacClimate::traits() {
 		for (auto mode : this->supported_modes_)
 			traits.add_supported_mode(mode);
 	}
-	if (this->supported_presets_.empty()) {
-		traits.add_supported_preset(ClimatePreset::CLIMATE_PRESET_NONE);
-	} else {
+	// Solo agregamos presets si fueron configurados explicitamente, sin default
+	if (!this->supported_presets_.empty()) {
 		for (auto preset : this->supported_presets_)
 			traits.add_supported_preset(preset);
 	}
@@ -51,6 +50,7 @@ void tclacClimate::setup() {
 	// Inicializamos target_temperature con un valor valido para evitar NaN al boot
 	this->target_temperature = 24.0f;
 	this->current_temperature = NAN;
+	this->mode = climate::CLIMATE_MODE_OFF;
 
 #ifdef CONF_RX_LED
 	this->rx_led_pin_->setup();
@@ -60,6 +60,9 @@ void tclacClimate::setup() {
 	this->tx_led_pin_->setup();
 	this->tx_led_pin_->digital_write(false);
 #endif
+
+	// Publicamos el estado inicial para que HA reciba target_temperature valido desde el primer momento
+	this->publish_state();
 }
 
 void tclacClimate::loop()  {
@@ -187,14 +190,16 @@ void tclacClimate::readData() {
 				break;
 		}
 		
-		// Procesamiento de presets
-		preset = ClimatePreset::CLIMATE_PRESET_NONE;
-		if (dataRX[7] & (1 << 6)){
-			preset = ClimatePreset::CLIMATE_PRESET_ECO;
-		} else if (dataRX[9] & (1 << 2)){
-			preset = ClimatePreset::CLIMATE_PRESET_COMFORT;
-		} else if (dataRX[19] & (1 << 0)){
-			preset = ClimatePreset::CLIMATE_PRESET_SLEEP;
+		// Procesamiento de presets (solo si hay presets configurados)
+		if (!this->supported_presets_.empty()) {
+			preset = ClimatePreset::CLIMATE_PRESET_NONE;
+			if (dataRX[7] & (1 << 6)){
+				preset = ClimatePreset::CLIMATE_PRESET_ECO;
+			} else if (dataRX[9] & (1 << 2)){
+				preset = ClimatePreset::CLIMATE_PRESET_COMFORT;
+			} else if (dataRX[19] & (1 << 0)){
+				preset = ClimatePreset::CLIMATE_PRESET_SLEEP;
+			}
 		}
 		
 	} else {
@@ -202,7 +207,9 @@ void tclacClimate::readData() {
 		// Si el aire esta apagado, todos los modos se muestran como apagados
 		this->mode = climate::CLIMATE_MODE_OFF;
 		this->swing_mode = climate::CLIMATE_SWING_OFF;
-		this->preset = ClimatePreset::CLIMATE_PRESET_NONE;
+		if (!this->supported_presets_.empty()) {
+			this->preset = ClimatePreset::CLIMATE_PRESET_NONE;
+		}
 	}
 	// Publicamos los datos
 	this->publish_state();
