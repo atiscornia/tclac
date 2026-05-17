@@ -94,10 +94,12 @@ switch:
     restore_mode: RESTORE_DEFAULT_ON
     turn_on_action:
       then:
-        - climate.tclac.beeper_on: ${device_name}climate
+        - climate.tclac.beeper_on: 
+            id: ${device_name}climate
     turn_off_action:
       then:
-        - climate.tclac.beeper_off: ${device_name}climate
+        - climate.tclac.beeper_off: 
+            id: ${device_name}climate
 
   - platform: template
     name: "Display del aire"
@@ -107,10 +109,12 @@ switch:
     restore_mode: RESTORE_DEFAULT_ON
     turn_on_action:
       then:
-        - climate.tclac.display_on: ${device_name}climate
+        - climate.tclac.display_on: 
+            id: ${device_name}climate
     turn_off_action:
       then:
-        - climate.tclac.display_off: ${device_name}climate
+        - climate.tclac.display_off: 
+            id: ${device_name}climate
 
   - platform: template
     name: "LEDs del modulo"
@@ -120,10 +124,12 @@ switch:
     restore_mode: RESTORE_DEFAULT_ON
     turn_on_action:
       then:
-        - climate.tclac.module_display_on: ${device_name}climate
+        - climate.tclac.module_display_on: 
+            id: ${device_name}climate
     turn_off_action:
       then:
-        - climate.tclac.module_display_off: ${device_name}climate
+        - climate.tclac.module_display_off: 
+            id: ${device_name}climate
 
   - platform: template
     name: "Forzar configuracion"
@@ -133,10 +139,12 @@ switch:
     restore_mode: RESTORE_DEFAULT_ON
     turn_on_action:
       then:
-        - climate.tclac.force_mode_on: ${device_name}climate
+        - climate.tclac.force_mode_on: 
+            id: ${device_name}climate
     turn_off_action:
       then:
-        - climate.tclac.force_mode_off: ${device_name}climate
+        - climate.tclac.force_mode_off: 
+            id: ${device_name}climate
 
 select:
   - platform: template
