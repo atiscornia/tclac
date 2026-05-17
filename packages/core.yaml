@@ -1,233 +1,184 @@
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-# # # # #                                   ¡¡NO EDITAR!!                                       # # # # #
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+# Package core para componente tclac (aires TCL/Hyundai/Daichi/Ballu/etc)
+#
+# Substituciones requeridas en el YAML del dispositivo:
+#   device_name          -> ID del dispositivo (snake_case)
+#   humanly_name         -> Nombre legible
+#   wifi_ssid            -> SSID WiFi
+#   wifi_password        -> Password WiFi
+#   recovery_pass        -> Password del AP de fallback
+#   ota_pass             -> Password OTA
+#   api_key              -> Clave API de ESPHome
+#   uart_rx, uart_tx     -> Pines GPIO de UART hacia el aire
+#   receive_led          -> Pin GPIO del LED de RX
+#   transmit_led         -> Pin GPIO del LED de TX
 
-# Componente del climatizador
 external_components:
   - source:
-      url: https://github.com/atiscornia/tclac.git
       type: git
+      url: https://github.com/atiscornia/tclac.git
       ref: master
-    components: [ tclac ]
-    refresh: 30s
+    components: [tclac]
+    refresh: 0s
 
-# Configuración ESPHome
 esphome:
   name: ${device_name}
-  min_version: 2023.3.0
   friendly_name: ${humanly_name}
-  on_boot:
-    priority: -100
-    then:
-      lambda: !lambda |-
-        id(${device_name}climate).set_beeper_state(false);
-        id(${device_name}climate).set_force_mode_state(false);
-        
-        if (id(display_mode).state){
-          id(${device_name}climate).set_display_state(true);
-        } else {
-          id(${device_name}climate).set_display_state(false);
-        }
-        if (id(ledflash_mode).state){
-          id(${device_name}climate).set_module_display_state(true);
-        } else {
-          id(${device_name}climate).set_module_display_state(false);
-        }
-        
-        if (id(vswing).active_index() == 0){
-          id(${device_name}climate).set_vertical_swing_direction(esphome::tclac::VerticalSwingDirection::UP_DOWN);
-        } else if (id(vswing).active_index() == 1){
-          id(${device_name}climate).set_vertical_swing_direction(esphome::tclac::VerticalSwingDirection::UPSIDE);
-        } else if (id(vswing).active_index() == 2){
-          id(${device_name}climate).set_vertical_swing_direction(esphome::tclac::VerticalSwingDirection::DOWNSIDE);
-        }
-        
-        if (id(vfixing).active_index() == 0){
-          id(${device_name}climate).set_vertical_airflow(esphome::tclac::AirflowVerticalDirection::LAST);
-        } else if (id(vfixing).active_index() == 1){
-          id(${device_name}climate).set_vertical_airflow(esphome::tclac::AirflowVerticalDirection::MAX_UP);
-        } else if (id(vfixing).active_index() == 2){
-          id(${device_name}climate).set_vertical_airflow(esphome::tclac::AirflowVerticalDirection::UP);
-        } else if (id(vfixing).active_index() == 3){
-          id(${device_name}climate).set_vertical_airflow(esphome::tclac::AirflowVerticalDirection::CENTER);
-        } else if (id(vfixing).active_index() == 4){
-          id(${device_name}climate).set_vertical_airflow(esphome::tclac::AirflowVerticalDirection::DOWN);
-        } else if (id(vfixing).active_index() == 5){
-          id(${device_name}climate).set_vertical_airflow(esphome::tclac::AirflowVerticalDirection::MAX_DOWN);
-        }
-        
-        if (id(beep_mode).state){
-          id(${device_name}climate).set_beeper_state(true);
-        } else {
-          id(${device_name}climate).set_beeper_state(false);
-        }
-        if (id(force_mode).state){
-          id(${device_name}climate).set_force_mode_state(true);
-        } else {
-          id(${device_name}climate).set_force_mode_state(false);
-        }
 
-uart:
-  baud_rate: 9600
-  data_bits: 8
-  parity: EVEN
-  stop_bits: 1
-  rx_pin: ${uart_rx}
-  tx_pin: ${uart_tx}
+logger:
+  level: DEBUG
 
 api:
   encryption:
-    key: "${api_key}"
+    key: ${api_key}
 
 ota:
-- platform: esphome
-  password: "${ota_pass}"
+  - platform: esphome
+    password: ${ota_pass}
 
 wifi:
-  id: "${device_name}_wifi"
   ssid: ${wifi_ssid}
   password: ${wifi_password}
   ap:
-    ssid: "${device_name} Fallback Hotspot"
-    password: "${recovery_pass}"
+    ssid: "${humanly_name} Fallback"
+    password: ${recovery_pass}
 
 captive_portal:
 
+uart:
+  id: tclac_uart
+  baud_rate: 9600
+  parity: EVEN
+  rx_pin: ${uart_rx}
+  tx_pin: ${uart_tx}
 
-# # # # # # # # # # # # # # # # # # # # # # #
-# # # # #       ¡NO EDITAR!         # # # # #
-# # # # # # # # # # # # # # # # # # # # # # #
+climate:
+  - platform: tclac
+    name: ${humanly_name} Climate
+    id: ${device_name}climate
+    uart_id: tclac_uart
+    update_interval: 5s
+    rx_led: ${receive_led}
+    tx_led: ${transmit_led}
+    supported_modes:
+      - "OFF"
+      - HEAT_COOL
+      - COOL
+      - HEAT
+      - DRY
+      - FAN_ONLY
+    supported_presets: []
+    supported_fan_modes:
+      - AUTO
+      - QUIET
+      - LOW
+      - MIDDLE
+      - MEDIUM
+      - HIGH
+      - FOCUS
+      - DIFFUSE
+    supported_swing_modes:
+      - "OFF"
+      - VERTICAL
+    visual:
+      min_temperature: 16
+      max_temperature: 31
+      temperature_step:
+        target_temperature: 1
+        current_temperature: 1
 
-# OBLIGATORIO: desactivar el log por UART
-logger:
-  baud_rate: 0
-
-# Sección de configuración del dispositivo:
-# - Interruptores
 switch:
-  # Pitido de confirmación de comandos, apagado por defecto
-  - name: Pitido
-    platform: template
-    device_class: switch
-    id: beep_mode
-    entity_category: config
-    restore_mode: RESTORE_DEFAULT_ON
-    optimistic: true
-    on_turn_on:
-      then:
-        lambda: !lambda |-
-          id(${device_name}climate).set_beeper_state(true);
-    on_turn_off:
-      then:
-        lambda: !lambda |-
-          id(${device_name}climate).set_beeper_state(false);
-  
-  # Indicador de temperatura en el frente de la unidad interior, encendido por defecto
-  - name: Display
-    platform: template
-    device_class: switch
-    id: display_mode
-    entity_category: config
-    restore_mode: RESTORE_DEFAULT_ON
-    optimistic: true
-    on_turn_on:
-      then:
-        lambda: !lambda |-
-          id(${device_name}climate).set_display_state(true);
-    on_turn_off:
-      then:
-        lambda: !lambda |-
-          id(${device_name}climate).set_display_state(false);
-  
-  # LEDs de actividad de datos en el módulo, apagados por defecto
-  - name: LEDs del módulo
-    platform: template
-    device_class: switch
-    id: ledflash_mode
-    entity_category: config
-    restore_mode: RESTORE_DEFAULT_ON
-    optimistic: true
-    on_turn_on:
-      then:
-        lambda: !lambda |-
-          id(${device_name}climate).set_module_display_state(true);
-    on_turn_off:
-      then:
-        lambda: !lambda |-
-          id(${device_name}climate).set_module_display_state(false);
-          
-  - name: Forzar configuración
-    platform: template
-    device_class: switch
-    id: force_mode
-    entity_category: config
-    restore_mode: RESTORE_DEFAULT_ON
-    optimistic: true
-    on_turn_on:
-      then:
-        lambda: !lambda |-
-          id(${device_name}climate).set_force_mode_state(true);
-    on_turn_off:
-      then:
-        lambda: !lambda |-
-          id(${device_name}climate).set_force_mode_state(false);
-
-# - Listas desplegables
-select:
-  # Configuración del barrido vertical
   - platform: template
-    name: Barrido vertical
-    id: vswing
-    entity_category: config
-    options:
-      - "De arriba a abajo"
-      - "En la mitad superior"
-      - "En la mitad inferior"
+    name: "Pitido"
+    id: ${device_name}_beeper
+    icon: mdi:volume-high
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      - climate.tclac.beeper_on: ${device_name}climate
+    turn_off_action:
+      - climate.tclac.beeper_off: ${device_name}climate
+
+  - platform: template
+    name: "Display del aire"
+    id: ${device_name}_display
+    icon: mdi:monitor
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      - climate.tclac.display_on: ${device_name}climate
+    turn_off_action:
+      - climate.tclac.display_off: ${device_name}climate
+
+  - platform: template
+    name: "LEDs del modulo"
+    id: ${device_name}_module_display
+    icon: mdi:led-on
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      - climate.tclac.module_display_on: ${device_name}climate
+    turn_off_action:
+      - climate.tclac.module_display_off: ${device_name}climate
+
+  - platform: template
+    name: "Forzar configuracion"
+    id: ${device_name}_force_mode
+    icon: mdi:cog-refresh
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      - climate.tclac.force_mode_on: ${device_name}climate
+    turn_off_action:
+      - climate.tclac.force_mode_off: ${device_name}climate
+
+select:
+  - platform: template
+    name: "Barrido vertical"
+    id: ${device_name}_vertical_swing
+    icon: mdi:swap-vertical
     optimistic: true
     restore_value: true
-    on_value:
-      then:
-        lambda: !lambda |-
-          if (id(vswing).active_index() == 0){
+    options:
+      - "De arriba a abajo"
+      - "Mitad superior"
+      - "Mitad inferior"
+    initial_option: "De arriba a abajo"
+    set_action:
+      - lambda: |-
+          if (x == "De arriba a abajo") {
             id(${device_name}climate).set_vertical_swing_direction(esphome::tclac::VerticalSwingDirection::UP_DOWN);
-          } else if (id(vswing).active_index() == 1){
+          } else if (x == "Mitad superior") {
             id(${device_name}climate).set_vertical_swing_direction(esphome::tclac::VerticalSwingDirection::UPSIDE);
-          } else if (id(vswing).active_index() == 2){
+          } else if (x == "Mitad inferior") {
             id(${device_name}climate).set_vertical_swing_direction(esphome::tclac::VerticalSwingDirection::DOWNSIDE);
           }
 
-  # Configuración de la posición fija del flap vertical
   - platform: template
-    name: Posición flap vertical
-    id: vfixing
-    entity_category: config
+    name: "Posicion flap vertical"
+    id: ${device_name}_vertical_airflow
+    icon: mdi:arrow-expand-vertical
+    optimistic: true
+    restore_value: true
     options:
-      - "Última posición"
+      - "Ultima posicion"
       - "Arriba del todo"
       - "Mitad superior"
       - "Centro"
       - "Mitad inferior"
       - "Abajo del todo"
-    optimistic: true
-    restore_value: true
-    on_value:
-      then:
-        lambda: !lambda |-
-          if (id(vfixing).active_index() == 0){
+    initial_option: "Centro"
+    set_action:
+      - lambda: |-
+          if (x == "Ultima posicion") {
             id(${device_name}climate).set_vertical_airflow(esphome::tclac::AirflowVerticalDirection::LAST);
-          } else if (id(vfixing).active_index() == 1){
+          } else if (x == "Arriba del todo") {
             id(${device_name}climate).set_vertical_airflow(esphome::tclac::AirflowVerticalDirection::MAX_UP);
-          } else if (id(vfixing).active_index() == 2){
+          } else if (x == "Mitad superior") {
             id(${device_name}climate).set_vertical_airflow(esphome::tclac::AirflowVerticalDirection::UP);
-          } else if (id(vfixing).active_index() == 3){
+          } else if (x == "Centro") {
             id(${device_name}climate).set_vertical_airflow(esphome::tclac::AirflowVerticalDirection::CENTER);
-          } else if (id(vfixing).active_index() == 4){
+          } else if (x == "Mitad inferior") {
             id(${device_name}climate).set_vertical_airflow(esphome::tclac::AirflowVerticalDirection::DOWN);
-          } else if (id(vfixing).active_index() == 5){
+          } else if (x == "Abajo del todo") {
             id(${device_name}climate).set_vertical_airflow(esphome::tclac::AirflowVerticalDirection::MAX_DOWN);
           }
-
-climate:
-  - platform: tclac
-    name: "${device_name} Climate"
-    id: ${device_name}climate
