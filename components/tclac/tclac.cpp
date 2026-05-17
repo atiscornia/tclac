@@ -23,7 +23,7 @@ ClimateTraits tclacClimate::traits() {
 		for (auto mode : this->supported_modes_)
 			traits.add_supported_mode(mode);
 	}
-	// Solo agregamos presets si fueron configurados explicitamente, sin default
+	// Solo agregamos presets si fueron configurados explicitamente
 	if (!this->supported_presets_.empty()) {
 		for (auto preset : this->supported_presets_)
 			traits.add_supported_preset(preset);
@@ -58,39 +58,28 @@ void tclacClimate::setup() {
 }
 
 void tclacClimate::loop()  {
-	// Si hay algo en el buffer UART, lo leemos
 	if (esphome::uart::UARTDevice::available() > 0) {
 		dataShow(0, true);
 		dataRX[0] = esphome::uart::UARTDevice::read();
-		// Si el byte recibido no es el header (0xBB), salimos del ciclo
 		if (dataRX[0] != 0xBB) {
-			ESP_LOGD("TCL", "Wrong byte");
 			dataShow(0,0);
 			return;
 		}
-		// Si coincidio el header (0xBB), leemos los siguientes 4 bytes
 		dataRX[1] = esphome::uart::UARTDevice::read();
 		dataRX[2] = esphome::uart::UARTDevice::read();
 		dataRX[3] = esphome::uart::UARTDevice::read();
 		dataRX[4] = esphome::uart::UARTDevice::read();
 
-		// De los primeros 5 bytes, el quinto tiene la longitud del mensaje
 		esphome::uart::UARTDevice::read_array(dataRX+5, dataRX[4]+1);
 
 		uint8_t check = getChecksum(dataRX, sizeof(dataRX));
-
-		// Log de debug del frame RX completo en hex
-		auto raw = getHex(dataRX, sizeof(dataRX));
-		ESP_LOGD("TCL", "RX full : %s", raw.c_str());
 		
-		// Verificamos el checksum
 		if (check != dataRX[60]) {
-			ESP_LOGD("TCL", "Invalid checksum %x", check);
+			ESP_LOGD("TCL", "Checksum invalido %x", check);
 			this->dataShow(0,0);
 			return;
 		}
 		this->dataShow(0,0);
-		// Procesamos los datos
 		this->readData();
 	}
 }
@@ -98,7 +87,6 @@ void tclacClimate::loop()  {
 void tclacClimate::update() {
 	tclacClimate::dataShow(1,1);
 	this->esphome::uart::UARTDevice::write_array(poll, sizeof(poll));
-	ESP_LOGD("TCL", "chek status sended");
 	tclacClimate::dataShow(1,0);
 }
 
@@ -107,13 +95,8 @@ void tclacClimate::readData() {
 	current_temperature = float((( (dataRX[17] << 8) | dataRX[18] ) / 374 - 32)/1.8);
 	target_temperature = (dataRX[FAN_SPEED_POS] & SET_TEMP_MASK) + 16;
 
-	// Log de debug: byte de modo, byte de temp, valores calculados
-	ESP_LOGD("TCL", "readData: byte7(mode)=0x%02X byte8(temp/fan)=0x%02X target_temp=%.1f current=%.1f",
-		dataRX[MODE_POS], dataRX[FAN_SPEED_POS], target_temperature, current_temperature);
-
 	if (dataRX[MODE_POS] & ( 1 << 4)) {
-		// Si el aire esta encendido, parseamos los datos
-		ESP_LOGD("TCL", "AC is on");
+		// Aire encendido
 		uint8_t modeswitch = MODE_MASK & dataRX[MODE_POS];
 		uint8_t fanspeedswitch = FAN_SPEED_MASK & dataRX[FAN_SPEED_POS];
 		uint8_t swingmodeswitch = SWING_MODE_MASK & dataRX[SWING_POS];
@@ -197,27 +180,23 @@ void tclacClimate::readData() {
 		}
 		
 	} else {
-		ESP_LOGD("TCL", "AC is OFF");
-		// Si el aire esta apagado, todos los modos se muestran como apagados
+		// Aire apagado
 		this->mode = climate::CLIMATE_MODE_OFF;
 		this->swing_mode = climate::CLIMATE_SWING_OFF;
 		if (!this->supported_presets_.empty()) {
 			this->preset = ClimatePreset::CLIMATE_PRESET_NONE;
 		}
 	}
-	// Publicamos los datos
 	this->publish_state();
 	allow_take_control = true;
-   }
+}
 
 // Control desde HA
 void tclacClimate::control(const climate::ClimateCall &call) {
 	
-	ESP_LOGD("TCL", "Call from UI");
-	
 	if (call.get_mode().has_value()) this->mode = *call.get_mode();
-    if (call.get_target_temperature().has_value()) this->target_temperature = *call.get_target_temperature();
-    if (call.get_fan_mode().has_value()) this->fan_mode = *call.get_fan_mode();
+	if (call.get_target_temperature().has_value()) this->target_temperature = *call.get_target_temperature();
+	if (call.get_fan_mode().has_value()) this->fan_mode = *call.get_fan_mode();
 	if (call.get_swing_mode().has_value()) this->swing_mode = *call.get_swing_mode();
 	if (call.get_preset().has_value()) this->preset = *call.get_preset();
 	
@@ -225,8 +204,8 @@ void tclacClimate::control(const climate::ClimateCall &call) {
 	this->takeControl();
 	this->allow_take_control = true;
 }
-	
-	
+
+
 void tclacClimate::takeControl() {
 	
 	dataTX[7]  = 0b00000000;
@@ -240,27 +219,18 @@ void tclacClimate::takeControl() {
 	
 	uint8_t target_temperature_set = 31-(int)target_temperature;
 	
-	// Encendemos o apagamos el pitido segun el switch en la configuracion
+	// Pitido
 	if (beeper_status_){
-		ESP_LOGD("TCL", "Pitido encendido");
 		dataTX[7] += 0b00100000;
-	} else {
-		ESP_LOGD("TCL", "Pitido apagado");
-		dataTX[7] += 0b00000000;
 	}
 	
-	// Encendemos o apagamos el display del aire segun el switch
-	// Solo se enciende si el aire esta en algun modo activo
+	// Display del aire (solo si el aire esta encendido)
 	// ATENCION: al apagar el display, el aire pasa forzadamente a modo automatico
 	if ((display_status_) && (mode != climate::CLIMATE_MODE_OFF)){
-		ESP_LOGD("TCL", "Display encendido");
 		dataTX[7] += 0b01000000;
-	} else {
-		ESP_LOGD("TCL", "Display apagado");
-		dataTX[7] += 0b00000000;
 	}
 		
-	// Configuramos el modo del aire
+	// Modo del aire
 	switch (this->mode) {
 		case climate::CLIMATE_MODE_OFF:
 			dataTX[7] += 0b00000000;
@@ -290,7 +260,7 @@ void tclacClimate::takeControl() {
 			break;
 	}
 
-	// Configuramos el modo del ventilador
+	// Modo del ventilador
 	if (this->fan_mode.has_value()) {
 		switch(*this->fan_mode) {
 			case climate::CLIMATE_FAN_AUTO:
@@ -328,7 +298,7 @@ void tclacClimate::takeControl() {
 		}
 	}
 	
-	// Configuramos el modo de barrido de los flaps
+	// Modo de barrido de los flaps
 	switch(this->swing_mode) {
 		case climate::CLIMATE_SWING_OFF:
 			dataTX[10]	+= 0b00000000;
@@ -348,7 +318,7 @@ void tclacClimate::takeControl() {
 			break;
 	}
 	
-	// Configuramos los presets del aire
+	// Presets del aire
 	if (this->preset.has_value()) {
 		switch(*this->preset) {
 			case ClimatePreset::CLIMATE_PRESET_NONE:
@@ -398,99 +368,80 @@ void tclacClimate::takeControl() {
 	//       100 - fijacion entre centro y derecha
 	//       101 - fijacion a la derecha
 
-	// Configuramos el modo del barrido vertical
+	// Modo del barrido vertical
 	switch(vertical_swing_direction_) {
 		case VerticalSwingDirection::UP_DOWN:
 			dataTX[32]	+= 0b00001000;
-			ESP_LOGD("TCL", "Barrido vertical: de arriba a abajo");
 			break;
 		case VerticalSwingDirection::UPSIDE:
 			dataTX[32]	+= 0b00010000;
-			ESP_LOGD("TCL", "Barrido vertical: mitad superior");
 			break;
 		case VerticalSwingDirection::DOWNSIDE:
 			dataTX[32]	+= 0b00011000;
-			ESP_LOGD("TCL", "Barrido vertical: mitad inferior");
 			break;
 	}
-	// Configuramos el modo del barrido horizontal
+	// Modo del barrido horizontal
 	switch(horizontal_swing_direction_) {
 		case HorizontalSwingDirection::LEFT_RIGHT:
 			dataTX[33]	+= 0b00001000;
-			ESP_LOGD("TCL", "Barrido horizontal: izquierda a derecha");
 			break;
 		case HorizontalSwingDirection::LEFTSIDE:
 			dataTX[33]	+= 0b00010000;
-			ESP_LOGD("TCL", "Barrido horizontal: a la izquierda");
 			break;
 		case HorizontalSwingDirection::CENTER:
 			dataTX[33]	+= 0b00011000;
-			ESP_LOGD("TCL", "Barrido horizontal: en el centro");
 			break;
 		case HorizontalSwingDirection::RIGHTSIDE:
 			dataTX[33]	+= 0b00100000;
-			ESP_LOGD("TCL", "Barrido horizontal: a la derecha");
 			break;
 	}
-	// Configuramos la posicion de fijacion del flap vertical
+	// Posicion de fijacion del flap vertical
 	switch(vertical_direction_) {
 		case AirflowVerticalDirection::LAST:
 			dataTX[32]	+= 0b00000000;
-			ESP_LOGD("TCL", "Posicion flap vertical: ultima posicion");
 			break;
 		case AirflowVerticalDirection::MAX_UP:
 			dataTX[32]	+= 0b00000001;
-			ESP_LOGD("TCL", "Posicion flap vertical: arriba del todo");
 			break;
 		case AirflowVerticalDirection::UP:
 			dataTX[32]	+= 0b00000010;
-			ESP_LOGD("TCL", "Posicion flap vertical: mitad superior");
 			break;
 		case AirflowVerticalDirection::CENTER:
 			dataTX[32]	+= 0b00000011;
-			ESP_LOGD("TCL", "Posicion flap vertical: centro");
 			break;
 		case AirflowVerticalDirection::DOWN:
 			dataTX[32]	+= 0b00000100;
-			ESP_LOGD("TCL", "Posicion flap vertical: mitad inferior");
 			break;
 		case AirflowVerticalDirection::MAX_DOWN:
 			dataTX[32]	+= 0b00000101;
-			ESP_LOGD("TCL", "Posicion flap vertical: abajo del todo");
 			break;
 	}
-	// Configuramos la posicion de fijacion del flap horizontal
+	// Posicion de fijacion del flap horizontal
 	switch(horizontal_direction_) {
 		case AirflowHorizontalDirection::LAST:
 			dataTX[33]	+= 0b00000000;
-			ESP_LOGD("TCL", "Posicion flap horizontal: ultima posicion");
 			break;
 		case AirflowHorizontalDirection::MAX_LEFT:
 			dataTX[33]	+= 0b00000001;
-			ESP_LOGD("TCL", "Posicion flap horizontal: izquierda del todo");
 			break;
 		case AirflowHorizontalDirection::LEFT:
 			dataTX[33]	+= 0b00000010;
-			ESP_LOGD("TCL", "Posicion flap horizontal: mitad izquierda");
 			break;
 		case AirflowHorizontalDirection::CENTER:
 			dataTX[33]	+= 0b00000011;
-			ESP_LOGD("TCL", "Posicion flap horizontal: centro");
 			break;
 		case AirflowHorizontalDirection::RIGHT:
 			dataTX[33]	+= 0b00000100;
-			ESP_LOGD("TCL", "Posicion flap horizontal: mitad derecha");
 			break;
 		case AirflowHorizontalDirection::MAX_RIGHT:
 			dataTX[33]	+= 0b00000101;
-			ESP_LOGD("TCL", "Posicion flap horizontal: derecha del todo");
 			break;
 	}
 
-	// Seteamos la temperatura
+	// Temperatura
 	dataTX[9] = target_temperature_set;
 		
-	// Armamos el array de bytes para enviar al aire
+	// Header y bytes fijos
 	dataTX[0] = 0xBB;
 	dataTX[1] = 0x00;
 	dataTX[2] = 0x01;
@@ -527,15 +478,14 @@ void tclacClimate::takeControl() {
 	is_call_control = false;
 }
 
-// Enviamos datos al aire
+// Envio de datos al aire
 void tclacClimate::sendData(uint8_t * message, uint8_t size) {
 	tclacClimate::dataShow(1,1);
 	this->esphome::uart::UARTDevice::write_array(message, size);
-	ESP_LOGD("TCL", "Mensaje enviado al aire");
 	tclacClimate::dataShow(1,0);
 }
 
-// Convertimos los bytes a formato hex legible
+// Bytes a hex
 String tclacClimate::getHex(uint8_t *message, uint8_t size) {
 	String raw;
 	char buf[4];
@@ -546,7 +496,7 @@ String tclacClimate::getHex(uint8_t *message, uint8_t size) {
 	return raw;
 }
 
-// Calculo del checksum
+// Checksum
 uint8_t tclacClimate::getChecksum(const uint8_t * message, size_t size) {
 	uint8_t position = size - 1;
 	uint8_t crc = 0;
@@ -555,7 +505,7 @@ uint8_t tclacClimate::getChecksum(const uint8_t * message, size_t size) {
 	return crc;
 }
 
-// Parpadeo de LEDs
+// LEDs de comunicacion
 void tclacClimate::dataShow(bool flow, bool shine) {
 	if (module_display_status_){
 		if (flow == 0){
@@ -583,7 +533,6 @@ void tclacClimate::dataShow(bool flow, bool shine) {
 	}
 }
 
-// Estado del pitido
 void tclacClimate::set_beeper_state(bool state) {
 	this->beeper_status_ = state;
 	if (force_mode_status_){
@@ -592,7 +541,6 @@ void tclacClimate::set_beeper_state(bool state) {
 		}
 	}
 }
-// Estado del display del aire
 void tclacClimate::set_display_state(bool disp_state) {
 	this->display_status_ = disp_state;
 	if (force_mode_status_){
@@ -601,7 +549,6 @@ void tclacClimate::set_display_state(bool disp_state) {
 		}
 	}
 }
-// Estado del modo de aplicacion forzada de configuracion
 void tclacClimate::set_force_mode_state(bool f_state) {
 	this->force_mode_status_ = f_state;
 }
@@ -615,11 +562,9 @@ void tclacClimate::set_tx_led_pin(GPIOPin *tx_led_pin) {
 	this->tx_led_pin_ = tx_led_pin;
 }
 #endif
-// Estado de los LEDs de comunicacion del modulo
 void tclacClimate::set_module_display_state(bool d_state) {
 	this->module_display_status_ = d_state;
 }
-// Posicion de fijacion del flap vertical
 void tclacClimate::set_vertical_airflow(AirflowVerticalDirection v_airflow) {
 	this->vertical_direction_ = v_airflow;
 	if (force_mode_status_){
@@ -628,7 +573,6 @@ void tclacClimate::set_vertical_airflow(AirflowVerticalDirection v_airflow) {
 		}
 	}
 }
-// Posicion de fijacion de los flaps horizontales
 void tclacClimate::set_horizontal_airflow(AirflowHorizontalDirection h_airflow) {
 	this->horizontal_direction_ = h_airflow;
 	if (force_mode_status_){
@@ -637,7 +581,6 @@ void tclacClimate::set_horizontal_airflow(AirflowHorizontalDirection h_airflow) 
 		}
 	}
 }
-// Modo de barrido del flap vertical
 void tclacClimate::set_vertical_swing_direction(VerticalSwingDirection vs_direction) {
 	this->vertical_swing_direction_ = vs_direction;
 	if (force_mode_status_){
@@ -646,12 +589,9 @@ void tclacClimate::set_vertical_swing_direction(VerticalSwingDirection vs_direct
 		}
 	}
 }
-// Modos soportados
 void tclacClimate::set_supported_modes(climate::ClimateModeMask modes) {
 	this->supported_modes_ = modes;
-	ESP_LOGD("TCL", "Modos configurados");
 }
-// Modo de barrido de los flaps horizontales
 void tclacClimate::set_horizontal_swing_direction(HorizontalSwingDirection hs_direction) {
 	horizontal_swing_direction_ = hs_direction;
 	if (force_mode_status_){
@@ -660,15 +600,12 @@ void tclacClimate::set_horizontal_swing_direction(HorizontalSwingDirection hs_di
 		}
 	}
 }
-// Velocidades disponibles del ventilador
 void tclacClimate::set_supported_fan_modes(climate::ClimateFanModeMask fan_modes){
 	this->supported_fan_modes_ = fan_modes;
 }
-// Modos de barrido disponibles
 void tclacClimate::set_supported_swing_modes(climate::ClimateSwingModeMask swing_modes) {
 	this->supported_swing_modes_ = swing_modes;
 }
-// Presets disponibles
 void tclacClimate::set_supported_presets(climate::ClimatePresetMask presets) {
   this->supported_presets_ = presets;
 }
