@@ -73,11 +73,14 @@ SUPPORTED_CLIMATE_MODES_OPTIONS = {
     "FAN_ONLY": ClimateMode.CLIMATE_MODE_FAN_ONLY,
 }
 
-SUPPORTED_CLIMATE_PRESETS_OPTIONS = {
-    "NONE": ClimatePreset.CLIMATE_PRESET_NONE, # Доступен всегда
-    "ECO": ClimatePreset.CLIMATE_PRESET_ECO,
-    "SLEEP": ClimatePreset.CLIMATE_PRESET_SLEEP,
-    "COMFORT": ClimatePreset.CLIMATE_PRESET_COMFORT,
+SUPPORTED_CLIMATE_MODES_OPTIONS = {
+    "OFF": ClimateMode.CLIMATE_MODE_OFF,  # Доступен всегда
+    "AUTO": ClimateMode.CLIMATE_MODE_AUTO,  # Доступен всегда
+    "HEAT_COOL": ClimateMode.CLIMATE_MODE_HEAT_COOL,
+    "COOL": ClimateMode.CLIMATE_MODE_COOL,
+    "HEAT": ClimateMode.CLIMATE_MODE_HEAT,
+    "DRY": ClimateMode.CLIMATE_MODE_DRY,
+    "FAN_ONLY": ClimateMode.CLIMATE_MODE_FAN_ONLY,
 }
 
 VerticalSwingDirection = tclac_ns.enum("VerticalSwingDirection", True)
