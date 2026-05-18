@@ -9,6 +9,8 @@
 #   ota_pass             -> Password OTA
 #   api_key              -> Clave API de ESPHome
 #   uart_rx, uart_tx     -> Pines GPIO de UART hacia el aire
+#   receive_led          -> Pin GPIO del LED de RX
+#   transmit_led         -> Pin GPIO del LED de TX
 
 external_components:
   - source:
@@ -54,6 +56,8 @@ climate:
     name: ${humanly_name} Climate
     id: ${device_name}climate
     uart_id: tclac_uart
+    rx_led: ${receive_led}
+    tx_led: ${transmit_led}
     supported_modes:
       - "OFF"
       - HEAT_COOL
@@ -66,9 +70,7 @@ climate:
       - AUTO
       - QUIET
       - LOW
-      - MIDDLE
       - MEDIUM
-      - HIGH
       - FOCUS
       - DIFFUSE
     supported_swing_modes:
@@ -80,6 +82,59 @@ climate:
       temperature_step:
         target_temperature: 1
         current_temperature: 1
+
+switch:
+  - platform: template
+    name: "Pitido"
+    id: ${device_name}_beeper
+    icon: mdi:volume-high
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      then:
+        - climate.tclac.beeper_on: ${device_name}climate
+    turn_off_action:
+      then:
+        - climate.tclac.beeper_off: ${device_name}climate
+
+  - platform: template
+    name: "Display del aire"
+    id: ${device_name}_display
+    icon: mdi:monitor
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      then:
+        - climate.tclac.display_on: ${device_name}climate
+    turn_off_action:
+      then:
+        - climate.tclac.display_off: ${device_name}climate
+
+  - platform: template
+    name: "LEDs del modulo"
+    id: ${device_name}_module_display
+    icon: mdi:led-on
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      then:
+        - climate.tclac.module_display_on: ${device_name}climate
+    turn_off_action:
+      then:
+        - climate.tclac.module_display_off: ${device_name}climate
+
+  - platform: template
+    name: "Forzar configuracion"
+    id: ${device_name}_force_mode
+    icon: mdi:cog-refresh
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      then:
+        - climate.tclac.force_mode_on: ${device_name}climate
+    turn_off_action:
+      then:
+        - climate.tclac.force_mode_off: ${device_name}climate
 
 select:
   - platform: template
