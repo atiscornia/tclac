@@ -16,6 +16,7 @@ ClimateTraits tclacClimate::traits() {
 	auto traits = climate::ClimateTraits();
 	traits.add_feature_flags(climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE);
 	
+	// Ответственно заявляю, что это все я взял у christoph5180
 	if (this->supported_modes_.empty()) {
 		traits.add_supported_mode(climate::CLIMATE_MODE_OFF);
 		traits.add_supported_mode(climate::CLIMATE_MODE_HEAT_COOL);
@@ -23,8 +24,9 @@ ClimateTraits tclacClimate::traits() {
 		for (auto mode : this->supported_modes_)
 			traits.add_supported_mode(mode);
 	}
-	// Solo agregamos presets si fueron configurados explicitamente
-	if (!this->supported_presets_.empty()) {
+	if (this->supported_presets_.empty()) {
+		traits.add_supported_preset(ClimatePreset::CLIMATE_PRESET_NONE);
+	} else {
 		for (auto preset : this->supported_presets_)
 			traits.add_supported_preset(preset);
 	}
@@ -58,28 +60,50 @@ void tclacClimate::setup() {
 }
 
 void tclacClimate::loop()  {
+	// Если в буфере UART что-то есть, то читаем это что-то
 	if (esphome::uart::UARTDevice::available() > 0) {
 		dataShow(0, true);
 		dataRX[0] = esphome::uart::UARTDevice::read();
+		// Если принятый байт- не заголовок (0xBB), то просто покидаем цикл
 		if (dataRX[0] != 0xBB) {
+			ESP_LOGD("TCL", "Wrong byte");
 			dataShow(0,0);
 			return;
 		}
+		// А вот если совпал заголовок (0xBB), то начинаем чтение по цепочке еще 4 байт
+		// Иногда, для некоторых кондиционеров все же нужно добавить delay(5) между пакетами. Зачем- ХЗ, но так надо. Но не всегда. Хотя иногда- да. Но не каждый раз. Изредка. Случается.
+		// delay(5);
 		dataRX[1] = esphome::uart::UARTDevice::read();
+		// delay(5);
 		dataRX[2] = esphome::uart::UARTDevice::read();
+		// delay(5);
 		dataRX[3] = esphome::uart::UARTDevice::read();
+		// delay(5);
 		dataRX[4] = esphome::uart::UARTDevice::read();
 
+		//auto raw = getHex(dataRX, 5);
+		
+		//ESP_LOGD("TCL", "first 5 byte : %s ", raw.c_str());
+
+		// Из первых 5 байт нам нужен пятый- он содержит длину сообщения
 		esphome::uart::UARTDevice::read_array(dataRX+5, dataRX[4]+1);
 
 		uint8_t check = getChecksum(dataRX, sizeof(dataRX));
+
+		//raw = getHex(dataRX, sizeof(dataRX));
 		
+		//ESP_LOGD("TCL", "RX full : %s ", raw.c_str());
+		
+		// Проверяем контрольную сумму
 		if (check != dataRX[60]) {
-			ESP_LOGD("TCL", "Checksum invalido %x", check);
+			ESP_LOGD("TCL", "Invalid checksum %x", check);
 			this->dataShow(0,0);
 			return;
+		} else {
+			//ESP_LOGD("TCL", "checksum OK %x", check);
 		}
 		this->dataShow(0,0);
+		// Прочитав все из буфера приступаем к разбору данных
 		this->readData();
 	}
 }
@@ -87,6 +111,8 @@ void tclacClimate::loop()  {
 void tclacClimate::update() {
 	tclacClimate::dataShow(1,1);
 	this->esphome::uart::UARTDevice::write_array(poll, sizeof(poll));
+	//auto raw = tclacClimate::getHex(poll, sizeof(poll));
+	ESP_LOGD("TCL", "chek status sended");
 	tclacClimate::dataShow(1,0);
 }
 
@@ -95,8 +121,11 @@ void tclacClimate::readData() {
 	current_temperature = float((( (dataRX[17] << 8) | dataRX[18] ) / 374 - 32)/1.8);
 	target_temperature = (dataRX[FAN_SPEED_POS] & SET_TEMP_MASK) + 16;
 
+	//ESP_LOGD("TCL", "TEMP: %f ", current_temperature);
+
 	if (dataRX[MODE_POS] & ( 1 << 4)) {
-		// Aire encendido
+		// Si el aire esta encendido, parseamos los datos
+		ESP_LOGD("TCL", "AC is on");
 		uint8_t modeswitch = MODE_MASK & dataRX[MODE_POS];
 		uint8_t fanspeedswitch = FAN_SPEED_MASK & dataRX[FAN_SPEED_POS];
 		uint8_t swingmodeswitch = SWING_MODE_MASK & dataRX[SWING_POS];
@@ -167,36 +196,39 @@ void tclacClimate::readData() {
 				break;
 		}
 		
-		// Procesamiento de presets (solo si hay presets configurados)
-		if (!this->supported_presets_.empty()) {
-			preset = ClimatePreset::CLIMATE_PRESET_NONE;
-			if (dataRX[7] & (1 << 6)){
-				preset = ClimatePreset::CLIMATE_PRESET_ECO;
-			} else if (dataRX[9] & (1 << 2)){
-				preset = ClimatePreset::CLIMATE_PRESET_COMFORT;
-			} else if (dataRX[19] & (1 << 0)){
-				preset = ClimatePreset::CLIMATE_PRESET_SLEEP;
-			}
+		// Обработка данных о пресете
+		preset = ClimatePreset::CLIMATE_PRESET_NONE;
+		if (dataRX[7] & (1 << 6)){
+			preset = ClimatePreset::CLIMATE_PRESET_ECO;
+		} else if (dataRX[9] & (1 << 2)){
+			preset = ClimatePreset::CLIMATE_PRESET_COMFORT;
+		} else if (dataRX[19] & (1 << 0)){
+			preset = ClimatePreset::CLIMATE_PRESET_SLEEP;
 		}
 		
 	} else {
-		// Aire apagado
+		ESP_LOGD("TCL", "AC is OFF");
+		// Si el aire esta apagado, todos los modos se muestran como apagados
 		this->mode = climate::CLIMATE_MODE_OFF;
+		//fan_mode = climate::CLIMATE_FAN_OFF;
 		this->swing_mode = climate::CLIMATE_SWING_OFF;
-		if (!this->supported_presets_.empty()) {
-			this->preset = ClimatePreset::CLIMATE_PRESET_NONE;
-		}
+		this->preset = ClimatePreset::CLIMATE_PRESET_NONE;
 	}
+	// Публикуем данные
 	this->publish_state();
 	allow_take_control = true;
-}
+   }
 
-// Control desde HA
+// Climate control
 void tclacClimate::control(const climate::ClimateCall &call) {
 	
+	ESP_LOGD("TCL", "Call from UI");
+	
+	// А это и ниже я подрезал у Vi3jo.
+	
 	if (call.get_mode().has_value()) this->mode = *call.get_mode();
-	if (call.get_target_temperature().has_value()) this->target_temperature = *call.get_target_temperature();
-	if (call.get_fan_mode().has_value()) this->fan_mode = *call.get_fan_mode();
+    if (call.get_target_temperature().has_value()) this->target_temperature = *call.get_target_temperature();
+    if (call.get_fan_mode().has_value()) this->fan_mode = *call.get_fan_mode();
 	if (call.get_swing_mode().has_value()) this->swing_mode = *call.get_swing_mode();
 	if (call.get_preset().has_value()) this->preset = *call.get_preset();
 	
@@ -204,8 +236,8 @@ void tclacClimate::control(const climate::ClimateCall &call) {
 	this->takeControl();
 	this->allow_take_control = true;
 }
-
-
+	
+	
 void tclacClimate::takeControl() {
 	
 	dataTX[7]  = 0b00000000;
@@ -219,18 +251,29 @@ void tclacClimate::takeControl() {
 	
 	uint8_t target_temperature_set = 31-(int)target_temperature;
 	
-	// Pitido
+	// Включаем или отключаем пищалку в зависимости от переключателя в настройках
 	if (beeper_status_){
+		ESP_LOGD("TCL", "Beep mode ON");
 		dataTX[7] += 0b00100000;
+	} else {
+		ESP_LOGD("TCL", "Beep mode OFF");
+		dataTX[7] += 0b00000000;
 	}
 	
-	// Display del aire (solo si el aire esta encendido)
-	// ATENCION: al apagar el display, el aire pasa forzadamente a modo automatico
+	// Включаем или отключаем дисплей на кондиционере в зависимости от переключателя в настройках
+	// Включаем дисплей только если кондиционер в одном из рабочих режимов
+	
+	// ВНИМАНИЕ! При выключении дисплея кондиционер сам принудительно переходит в автоматический режим!
+	
 	if ((display_status_) && (mode != climate::CLIMATE_MODE_OFF)){
+		ESP_LOGD("TCL", "Dispaly turn ON");
 		dataTX[7] += 0b01000000;
+	} else {
+		ESP_LOGD("TCL", "Dispaly turn OFF");
+		dataTX[7] += 0b00000000;
 	}
 		
-	// Modo del aire
+	// Настраиваем режим работы кондиционера
 	switch (this->mode) {
 		case climate::CLIMATE_MODE_OFF:
 			dataTX[7] += 0b00000000;
@@ -260,7 +303,7 @@ void tclacClimate::takeControl() {
 			break;
 	}
 
-	// Modo del ventilador
+	// Настраиваем режим вентилятора
 	if (this->fan_mode.has_value()) {
 		switch(*this->fan_mode) {
 			case climate::CLIMATE_FAN_AUTO:
@@ -298,7 +341,7 @@ void tclacClimate::takeControl() {
 		}
 	}
 	
-	// Modo de barrido de los flaps
+	// Устанавливаем режим качания заслонок
 	switch(this->swing_mode) {
 		case climate::CLIMATE_SWING_OFF:
 			dataTX[10]	+= 0b00000000;
@@ -318,7 +361,7 @@ void tclacClimate::takeControl() {
 			break;
 	}
 	
-	// Presets del aire
+	// Устанавливаем предустановки кондиционера
 	if (this->preset.has_value()) {
 		switch(*this->preset) {
 			case ClimatePreset::CLIMATE_PRESET_NONE:
@@ -335,142 +378,162 @@ void tclacClimate::takeControl() {
 		}
 	}
 
-	// Configuracion de los flaps:
-	//   Flap vertical:
-	//     Barrido vertical [byte 10, mascara 00111000]:
-	//       000 - barrido desactivado, flap en ultima posicion o fijo
-	//       111 - barrido activado en el modo seleccionado
-	//     Modo de barrido vertical [byte 32, mascara 00011000]:
-	//       01 - barrido de arriba a abajo (POR DEFECTO)
-	//       10 - barrido en la mitad superior
-	//       11 - barrido en la mitad inferior
-	//     Modo de fijacion del flap [byte 32, mascara 00000111]:
-	//       000 - sin fijacion (POR DEFECTO)
-	//       001 - fijacion arriba del todo
-	//       010 - fijacion entre arriba y centro
-	//       011 - fijacion en el centro
-	//       100 - fijacion entre centro y abajo
-	//       101 - fijacion abajo del todo
-	//   Flaps horizontales:
-	//     Barrido horizontal [byte 11, mascara 00001000]:
-	//       0 - barrido desactivado, flaps en ultima posicion o fijos
-	//       1 - barrido activado en el modo seleccionado
-	//     Modo de barrido horizontal [byte 33, mascara 00111000]:
-	//       001 - barrido de izquierda a derecha (POR DEFECTO)
-	//       010 - barrido a la izquierda
-	//       011 - barrido en el centro
-	//       100 - barrido a la derecha
-	//     Modo de fijacion de los flaps horizontales [byte 33, mascara 00000111]:
-	//       000 - sin fijacion (POR DEFECTO)
-	//       001 - fijacion a la izquierda
-	//       010 - fijacion entre izquierda y centro
-	//       011 - fijacion en el centro
-	//       100 - fijacion entre centro y derecha
-	//       101 - fijacion a la derecha
-
-	// Modo del barrido vertical
+        //Режим заслонок
+		//	Вертикальная заслонка
+		//		Качание вертикальной заслонки [10 байт, маска 00111000]:
+		//			000 - Качание отключено, заслонка в последней позиции или в фиксации
+		//			111 - Качание включено в выбранном режиме
+		//		Режим качания вертикальной заслонки (режим фиксации заслонки роли не играет, если качание включено) [32 байт, маска 00011000]:
+		//			01 - качание сверху вниз, ПО УМОЛЧАНИЮ
+		//			10 - качание в верхней половине
+		//			11 - качание в нижней половине
+		//		Режим фиксации заслонки (режим качания заслонки роли не играет, если качание выключено) [32 байт, маска 00000111]:
+		//			000 - нет фиксации, ПО УМОЛЧАНИЮ
+		//			001 - фиксация вверху
+		//			010 - фиксация между верхом и серединой
+		//			011 - фиксация в середине
+		//			100 - фиксация между серединой и низом
+		//			101 - фиксация внизу
+		//	Горизонтальные заслонки
+		//		Качание горизонтальных заслонок [11 байт, маска 00001000]:
+		//			0 - Качание отключено, заслонки в последней позиции или в фиксации
+		//			1 - Качание включено в выбранном режиме
+		//		Режим качания горизонтальных заслонок (режим фиксации заслонок роли не играет, если качание включено) [33 байт, маска 00111000]:
+		//			001 - качание слева направо, ПО УМОЛЧАНИЮ
+		//			010 - качание слева
+		//			011 - качание по середине
+		//			100 - качание справа
+		//		Режим фиксации горизонтальных заслонок (режим качания заслонок роли не играет, если качание выключено) [33 байт, маска 00000111]:
+		//			000 - нет фиксации, ПО УМОЛЧАНИЮ
+		//			001 - фиксация слева
+		//			010 - фиксация между левой стороной и серединой
+		//			011 - фиксация в середине
+		//			100 - фиксация между серединой и правой стороной
+		//			101 - фиксация справа
+		
+		
+	// Устанавливаем режим для качания вертикальной заслонки
 	switch(vertical_swing_direction_) {
 		case VerticalSwingDirection::UP_DOWN:
 			dataTX[32]	+= 0b00001000;
+			ESP_LOGD("TCL", "Vertical swing: up-down");
 			break;
 		case VerticalSwingDirection::UPSIDE:
 			dataTX[32]	+= 0b00010000;
+			ESP_LOGD("TCL", "Vertical swing: upper");
 			break;
 		case VerticalSwingDirection::DOWNSIDE:
 			dataTX[32]	+= 0b00011000;
+			ESP_LOGD("TCL", "Vertical swing: downer");
 			break;
 	}
-	// Modo del barrido horizontal
+	// Устанавливаем режим для качания горизонтальных заслонок
 	switch(horizontal_swing_direction_) {
 		case HorizontalSwingDirection::LEFT_RIGHT:
 			dataTX[33]	+= 0b00001000;
+			ESP_LOGD("TCL", "Horizontal swing: left-right");
 			break;
 		case HorizontalSwingDirection::LEFTSIDE:
 			dataTX[33]	+= 0b00010000;
+			ESP_LOGD("TCL", "Horizontal swing: lefter");
 			break;
 		case HorizontalSwingDirection::CENTER:
 			dataTX[33]	+= 0b00011000;
+			ESP_LOGD("TCL", "Horizontal swing: center");
 			break;
 		case HorizontalSwingDirection::RIGHTSIDE:
 			dataTX[33]	+= 0b00100000;
+			ESP_LOGD("TCL", "Horizontal swing: righter");
 			break;
 	}
-	// Posicion de fijacion del flap vertical
+	// Устанавливаем положение фиксации вертикальной заслонки
 	switch(vertical_direction_) {
 		case AirflowVerticalDirection::LAST:
 			dataTX[32]	+= 0b00000000;
+			ESP_LOGD("TCL", "Vertical fix: last position");
 			break;
 		case AirflowVerticalDirection::MAX_UP:
 			dataTX[32]	+= 0b00000001;
+			ESP_LOGD("TCL", "Vertical fix: up");
 			break;
 		case AirflowVerticalDirection::UP:
 			dataTX[32]	+= 0b00000010;
+			ESP_LOGD("TCL", "Vertical fix: upper");
 			break;
 		case AirflowVerticalDirection::CENTER:
 			dataTX[32]	+= 0b00000011;
+			ESP_LOGD("TCL", "Vertical fix: center");
 			break;
 		case AirflowVerticalDirection::DOWN:
 			dataTX[32]	+= 0b00000100;
+			ESP_LOGD("TCL", "Vertical fix: downer");
 			break;
 		case AirflowVerticalDirection::MAX_DOWN:
 			dataTX[32]	+= 0b00000101;
+			ESP_LOGD("TCL", "Vertical fix: down");
 			break;
 	}
-	// Posicion de fijacion del flap horizontal
+	// Устанавливаем положение фиксации горизонтальных заслонок
 	switch(horizontal_direction_) {
 		case AirflowHorizontalDirection::LAST:
 			dataTX[33]	+= 0b00000000;
+			ESP_LOGD("TCL", "Horizontal fix: last position");
 			break;
 		case AirflowHorizontalDirection::MAX_LEFT:
 			dataTX[33]	+= 0b00000001;
+			ESP_LOGD("TCL", "Horizontal fix: left");
 			break;
 		case AirflowHorizontalDirection::LEFT:
 			dataTX[33]	+= 0b00000010;
+			ESP_LOGD("TCL", "Horizontal fix: lefter");
 			break;
 		case AirflowHorizontalDirection::CENTER:
 			dataTX[33]	+= 0b00000011;
+			ESP_LOGD("TCL", "Horizontal fix: center");
 			break;
 		case AirflowHorizontalDirection::RIGHT:
 			dataTX[33]	+= 0b00000100;
+			ESP_LOGD("TCL", "Horizontal fix: righter");
 			break;
 		case AirflowHorizontalDirection::MAX_RIGHT:
 			dataTX[33]	+= 0b00000101;
+			ESP_LOGD("TCL", "Horizontal fix: right");
 			break;
 	}
 
-	// Temperatura
+	// Установка температуры
 	dataTX[9] = target_temperature_set;
 		
-	// Header y bytes fijos
-	dataTX[0] = 0xBB;
-	dataTX[1] = 0x00;
-	dataTX[2] = 0x01;
-	dataTX[3] = 0x03;
-	dataTX[4] = 0x20;
-	dataTX[5] = 0x03;
-	dataTX[6] = 0x01;
-	dataTX[12] = 0x00;
-	dataTX[13] = 0x01;
-	dataTX[14] = 0x00;
-	dataTX[15] = 0x00;
-	dataTX[16] = 0x00;
-	dataTX[17] = 0x00;
-	dataTX[18] = 0x00;
-	dataTX[20] = 0x00;
-	dataTX[21] = 0x00;
-	dataTX[22] = 0x00;
-	dataTX[23] = 0x00;
-	dataTX[24] = 0x00;
-	dataTX[25] = 0x00;
-	dataTX[26] = 0x00;
-	dataTX[27] = 0x00;
-	dataTX[28] = 0x00;
-	dataTX[30] = 0x00;
-	dataTX[31] = 0x00;
-	dataTX[34] = 0x00;
-	dataTX[35] = 0x00;
-	dataTX[36] = 0x00;
-	dataTX[37] = 0xFF;
+	// Собираем массив байт для отправки в кондиционер
+	dataTX[0] = 0xBB;	//стартовый байт заголовка
+	dataTX[1] = 0x00;	//стартовый байт заголовка
+	dataTX[2] = 0x01;	//стартовый байт заголовка
+	dataTX[3] = 0x03;	//0x03 - управление, 0x04 - опрос
+	dataTX[4] = 0x20;	//0x20 - управление, 0x19 - опрос
+	dataTX[5] = 0x03;	//??
+	dataTX[6] = 0x01;	//??
+	dataTX[12] = 0x00;	//fahrenheit,ontimer(6),0 cf 80=f 0=c
+	dataTX[13] = 0x01;	//??
+	dataTX[14] = 0x00;	//0,0,halfdegree,0,0,0,0,0
+	dataTX[15] = 0x00;	//??
+	dataTX[16] = 0x00;	//??
+	dataTX[17] = 0x00;	//??
+	dataTX[18] = 0x00;	//??
+	dataTX[20] = 0x00;	//??
+	dataTX[21] = 0x00;	//??
+	dataTX[22] = 0x00;	//??
+	dataTX[23] = 0x00;	//??
+	dataTX[24] = 0x00;	//??
+	dataTX[25] = 0x00;	//??
+	dataTX[26] = 0x00;	//??
+	dataTX[27] = 0x00;	//??
+	dataTX[28] = 0x00;	//??
+	dataTX[30] = 0x00;	//??
+	dataTX[31] = 0x00;	//??
+	dataTX[34] = 0x00;	//??
+	dataTX[35] = 0x00;	//??
+	dataTX[36] = 0x00;	//??
+	dataTX[37] = 0xFF;	//Контрольная сумма
 	dataTX[37] = tclacClimate::getChecksum(dataTX, sizeof(dataTX));
 
 	tclacClimate::sendData(dataTX, sizeof(dataTX));
@@ -478,25 +541,27 @@ void tclacClimate::takeControl() {
 	is_call_control = false;
 }
 
-// Envio de datos al aire
+// Отправка данных в кондиционер
 void tclacClimate::sendData(uint8_t * message, uint8_t size) {
 	tclacClimate::dataShow(1,1);
+	//Serial.write(message, size);
 	this->esphome::uart::UARTDevice::write_array(message, size);
+	//auto raw = getHex(message, size);
+	ESP_LOGD("TCL", "Message to TCL sended...");
 	tclacClimate::dataShow(1,0);
 }
 
-// Bytes a hex
+// Преобразование байта в читабельный формат
 String tclacClimate::getHex(uint8_t *message, uint8_t size) {
 	String raw;
-	char buf[4];
 	for (int i = 0; i < size; i++) {
-		snprintf(buf, sizeof(buf), "%02X ", message[i]);
-		raw += buf;
+		raw += "\n" + String(message[i]);
 	}
+	raw.toUpperCase();
 	return raw;
 }
 
-// Checksum
+// Вычисление контрольной суммы
 uint8_t tclacClimate::getChecksum(const uint8_t * message, size_t size) {
 	uint8_t position = size - 1;
 	uint8_t crc = 0;
@@ -505,7 +570,7 @@ uint8_t tclacClimate::getChecksum(const uint8_t * message, size_t size) {
 	return crc;
 }
 
-// LEDs de comunicacion
+// Мигаем светодиодами
 void tclacClimate::dataShow(bool flow, bool shine) {
 	if (module_display_status_){
 		if (flow == 0){
@@ -533,6 +598,9 @@ void tclacClimate::dataShow(bool flow, bool shine) {
 	}
 }
 
+// Действия с данными из конфига
+
+// Получение состояния пищалки
 void tclacClimate::set_beeper_state(bool state) {
 	this->beeper_status_ = state;
 	if (force_mode_status_){
@@ -541,6 +609,7 @@ void tclacClimate::set_beeper_state(bool state) {
 		}
 	}
 }
+// Получение состояния дисплея кондиционера
 void tclacClimate::set_display_state(bool disp_state) {
 	this->display_status_ = disp_state;
 	if (force_mode_status_){
@@ -549,22 +618,27 @@ void tclacClimate::set_display_state(bool disp_state) {
 		}
 	}
 }
+// Получение состояния режима принудительного применения настроек
 void tclacClimate::set_force_mode_state(bool f_state) {
 	this->force_mode_status_ = f_state;
 }
+// Получение пина светодиода приема данных
 #ifdef CONF_RX_LED
 void tclacClimate::set_rx_led_pin(GPIOPin *rx_led_pin) {
 	this->rx_led_pin_ = rx_led_pin;
 }
 #endif
+// Получение пина светодиода передачи данных
 #ifdef CONF_TX_LED
 void tclacClimate::set_tx_led_pin(GPIOPin *tx_led_pin) {
 	this->tx_led_pin_ = tx_led_pin;
 }
 #endif
+// Получение состояния светодиодов связи модуля
 void tclacClimate::set_module_display_state(bool d_state) {
 	this->module_display_status_ = d_state;
 }
+// Получение режима фиксации вертикальной заслонки
 void tclacClimate::set_vertical_airflow(AirflowVerticalDirection v_airflow) {
 	this->vertical_direction_ = v_airflow;
 	if (force_mode_status_){
@@ -573,6 +647,7 @@ void tclacClimate::set_vertical_airflow(AirflowVerticalDirection v_airflow) {
 		}
 	}
 }
+// Получение режима фиксации горизонтальных заслонок
 void tclacClimate::set_horizontal_airflow(AirflowHorizontalDirection h_airflow) {
 	this->horizontal_direction_ = h_airflow;
 	if (force_mode_status_){
@@ -581,6 +656,7 @@ void tclacClimate::set_horizontal_airflow(AirflowHorizontalDirection h_airflow) 
 		}
 	}
 }
+// Получение режима качания вертикальной заслонки
 void tclacClimate::set_vertical_swing_direction(VerticalSwingDirection vs_direction) {
 	this->vertical_swing_direction_ = vs_direction;
 	if (force_mode_status_){
@@ -589,9 +665,12 @@ void tclacClimate::set_vertical_swing_direction(VerticalSwingDirection vs_direct
 		}
 	}
 }
+// Получение доступных режимов работы кондиционера
 void tclacClimate::set_supported_modes(climate::ClimateModeMask modes) {
 	this->supported_modes_ = modes;
+	ESP_LOGD("TCL", "Set up Modes");
 }
+// Получение режима качания горизонтальных заслонок
 void tclacClimate::set_horizontal_swing_direction(HorizontalSwingDirection hs_direction) {
 	horizontal_swing_direction_ = hs_direction;
 	if (force_mode_status_){
@@ -600,12 +679,15 @@ void tclacClimate::set_horizontal_swing_direction(HorizontalSwingDirection hs_di
 		}
 	}
 }
+// Получение доступных скоростей вентилятора
 void tclacClimate::set_supported_fan_modes(climate::ClimateFanModeMask fan_modes){
 	this->supported_fan_modes_ = fan_modes;
 }
+// Получение доступных режимов качания заслонок
 void tclacClimate::set_supported_swing_modes(climate::ClimateSwingModeMask swing_modes) {
 	this->supported_swing_modes_ = swing_modes;
 }
+// Получение доступных предустановок
 void tclacClimate::set_supported_presets(climate::ClimatePresetMask presets) {
   this->supported_presets_ = presets;
 }
